@@ -19,7 +19,7 @@ and then changed a little.
 | Licence | `GPL-2.0+` (SPDX line in the file, kept unchanged) |
 
 The original copyright header is kept. Our changes are marked in the header
-("Modified by Eugene Flanagin, 2026 ...") and with `x870tuf` comments in the
+("Modified by Eugene Flanagin, 2026 ...") and with `plus` comments in the
 code. What we changed:
 
 1. Added the board **TUF GAMING X870-PRO WIFI7 W NEO** (one `ec_board_info`

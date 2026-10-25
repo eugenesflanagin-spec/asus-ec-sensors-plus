@@ -4,5 +4,5 @@ obj-m := asus-ec-sensors.o
 # Version string shown by "modinfo asus_ec_sensors" (read from module/VERSION)
 ASUS_EC_VERSION := $(shell cat $(KBUILD_EXTMOD)/VERSION 2>/dev/null)
 ifneq ($(ASUS_EC_VERSION),)
-ccflags-y += -DASUS_EC_X870TUF_VERSION='"$(ASUS_EC_VERSION)-x870tuf"'
+ccflags-y += -DASUS_EC_PLUS_VERSION='"$(ASUS_EC_VERSION)-plus"'
 endif

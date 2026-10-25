@@ -1,15 +1,20 @@
-# asus-ec-sensors-x870tuf
+# asus-ec-sensors-plus
 
 **In plain words:** your ASUS motherboard has a small helper chip (the
 "embedded controller", EC) that knows some temperatures Linux normally can't
 see, most importantly the **VRM** (the power circuit that feeds the CPU).
-Linux has a driver for this chip, `asus-ec-sensors`, but it does not know the
-**ASUS TUF GAMING X870-PRO WIFI7 W NEO** yet. This project is that driver with
-the board added, packaged so DKMS builds it for every kernel you install.
-After installing, `sensors` shows a new block called `asusec-isa-000a`.
+Linux has a driver for this chip, `asus-ec-sensors`, but it only knows a list
+of boards. This project is that driver **plus extra ASUS boards** that are not
+in the kernel yet, packaged so DKMS builds it for every kernel you install.
+The first added board is the **ASUS TUF GAMING X870-PRO WIFI7 W NEO**; more
+can be added (see [Add your board](#11-add-your-board)). After installing,
+`sensors` shows a new block called `asusec-isa-000a`.
 
-It is **read-only**: on this board it only ever reads from the EC. It never
-writes to it and never touches fans or fan control.
+It is **read-only** on every board whose sensors sit in EC bank 0 (all
+AMD 800-series boards): it only ever reads from the EC, never writes to it,
+and never touches fans or fan control.
+
+Example (TUF GAMING X870-PRO WIFI7 W NEO):
 
 ```
 asusec-isa-000a
@@ -22,7 +27,7 @@ VRM:          +40.0°C
 ```
 
 **Status: experimental.** The values are right when they are there, but on
-this board they are often **N/A for minutes at a time**, because the firmware
+the TUF X870-PRO they are often **N/A for minutes at a time**, because the firmware
 keeps the EC busy and this build refuses to interrupt it. Read
 [Known limitations](#8-known-limitations) first.
 
@@ -44,7 +49,7 @@ came from.
 8. [Known limitations](#8-known-limitations)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Safety notes](#10-safety-notes)
-11. [Helping with another board](#11-helping-with-another-board)
+11. [Add your board](#11-add-your-board)
 12. [Upstream status](#12-upstream-status)
 13. [Credits](#13-credits)
 14. [Glossary](#14-glossary)
@@ -53,9 +58,13 @@ came from.
 
 ## 1. Supported hardware
 
-| Board (exact DMI name) | BIOS tested | CPU tested | Status |
+Boards **added by this project** (not in the kernel driver yet):
+
+| Board (exact DMI `board_name`) | BIOS tested | Sensors | Validated by |
 |---|---|---|---|
-| `TUF GAMING X870-PRO WIFI7 W NEO` | 1805 | Ryzen 7 7800X3D | Works: 5 sensors |
+| `TUF GAMING X870-PRO WIFI7 W NEO` | 1805 (Ryzen 7 7800X3D) | CPU, CPU Package, Motherboard, VRM, CPU_Opt fan | Eugene Flanagin, 2026-10-25: side-by-side with k10temp, nct6799, prom21_xhci; idle + desktop use only ([details](#2-what-each-sensor-is-and-how-it-was-checked)) |
+
+Want yours here? See [Add your board](#11-add-your-board).
 
 Find your board name with:
 
@@ -69,6 +78,14 @@ with the kernel's own driver, except that boards whose sensors are all in
 EC bank 0 (every AMD 800-series board) also get the read-only behaviour
 described in [Safety notes](#10-safety-notes). If your board is already
 supported by your kernel, you do not need this package.
+
+**Module name.** The module is still called `asus_ec_sensors` (file
+`asus-ec-sensors.ko`), the same as the kernel's own. That is on purpose: DKMS
+installs it in `updates/dkms/`, which the kernel always prefers, so exactly one
+copy loads and nothing has to be blacklisted. A differently named module would
+load *next to* the kernel's one on boards both know, and the two would fight
+over the same device. Check which one is loaded with
+`cat /sys/module/asus_ec_sensors/version` (this one says `...-plus`).
 
 ---
 
@@ -164,7 +181,7 @@ You need the headers for each kernel you use (`linux-headers`,
 **From a release** (when there is one on GitHub):
 
 ```sh
-sudo pacman -U asus-ec-sensors-x870tuf-dkms-0.1.0-1-any.pkg.tar.zst
+sudo pacman -U asus-ec-sensors-plus-dkms-0.1.0-1-any.pkg.tar.zst
 ```
 
 **From this git checkout:**
@@ -207,10 +224,10 @@ Then, from this checkout:
 
 ```sh
 VER=$(cat module/VERSION)
-sudo cp -r module /usr/src/asus-ec-sensors-x870tuf-$VER
-sudo dkms add     -m asus-ec-sensors-x870tuf -v $VER
-sudo dkms build   -m asus-ec-sensors-x870tuf -v $VER
-sudo dkms install -m asus-ec-sensors-x870tuf -v $VER
+sudo cp -r module /usr/src/asus-ec-sensors-plus-$VER
+sudo dkms add     -m asus-ec-sensors-plus -v $VER
+sudo dkms build   -m asus-ec-sensors-plus -v $VER
+sudo dkms install -m asus-ec-sensors-plus -v $VER
 sudo modprobe asus_ec_sensors
 ```
 
@@ -233,7 +250,7 @@ You should see the five sensors from section 2. Make sure it is this build
 and not the kernel's own:
 
 ```sh
-cat /sys/module/asus_ec_sensors/version   # 0.1.0-x870tuf
+cat /sys/module/asus_ec_sensors/version   # 0.1.0-plus
 modinfo -n asus_ec_sensors                 # .../updates/dkms/asus-ec-sensors.ko...
 sudo dmesg | grep asus-ec                  # "board has 5 EC sensors that span 6 registers"
 ```
@@ -249,15 +266,15 @@ Arch:
 
 ```sh
 sudo modprobe -r asus_ec_sensors
-sudo pacman -R asus-ec-sensors-x870tuf-dkms
+sudo pacman -R asus-ec-sensors-plus-dkms
 ```
 
 Generic DKMS:
 
 ```sh
 sudo modprobe -r asus_ec_sensors
-sudo dkms remove -m asus-ec-sensors-x870tuf -v 0.1.0 --all
-sudo rm -r /usr/src/asus-ec-sensors-x870tuf-0.1.0
+sudo dkms remove -m asus-ec-sensors-plus -v 0.1.0 --all
+sudo rm -r /usr/src/asus-ec-sensors-plus-0.1.0
 ```
 
 Once your kernel has the board itself (see [Upstream status](#12-upstream-status)),
@@ -315,12 +332,12 @@ leave them on the Super I/O or k10temp sensors.
 | `modprobe: FATAL: Module asus_ec_sensors not found` | DKMS did not build for this kernel (no headers) | install the headers for your kernel, then `sudo dkms autoinstall` |
 | `dmesg`: `Failed to get hardware access guard` or `mutex` error | different BIOS with a different ACPI mutex name | report it; try `sudo modprobe asus_ec_sensors mutex_path=:GLOBAL_LOCK` |
 | Loaded, but `sensors` shows only some boards' sensors / the wrong ones | the kernel's own copy loaded instead of this one | `modinfo -n asus_ec_sensors` must point to `updates/dkms`; run `sudo depmod -a` and reload |
-| `version` file missing or not `-x870tuf` | same as above | same as above |
+| `version` file missing or not `-plus` | same as above | same as above |
 | All values `N/A` | firmware has the EC on another bank right now | wait; it comes back (section 8). If it never does, report it with `sudo dmesg` output |
 | DKMS build fails with clang errors on a clang-built kernel | `clang`/`lld` not installed | install `clang` and `lld` (the Makefile adds `LLVM=1` itself) |
 | `Required key not available` when loading | Secure Boot needs signed modules | sign with your MOK key (section 5) |
 | Huge or random temperatures in `nct6799` AUXTIN lines | unused Super I/O inputs on this board | ignore; not related to this package |
-| After a kernel update the sensors are gone | DKMS rebuild failed | `dkms status`; check `/var/lib/dkms/asus-ec-sensors-x870tuf/*/build/make.log` |
+| After a kernel update the sensors are gone | DKMS rebuild failed | `dkms status`; check `/var/lib/dkms/asus-ec-sensors-plus/*/build/make.log` |
 
 ---
 
@@ -344,17 +361,66 @@ leave them on the Super I/O or k10temp sensors.
 
 ---
 
-## 11. Helping with another board
+## 11. Add your board
 
-If you have a different ASUS AMD 800-series board:
+**In plain words:** you read the EC's numbers (read-only), compare them with
+sensors Linux already has, and send the evidence. Nothing in this guide writes
+to the EC.
 
-1. `sudo modprobe ec_sys write_support=0`
-2. `sudo tools/ec-sample.sh 30 2` and compare the columns with `sensors`.
-3. Plug a thermistor into T_SENSOR if you have one; register `0x35` or `0x36`
-   should change from -62 / 0 to a sensible temperature.
-4. Open an issue with the output, `cat /sys/class/dmi/id/board_name`, and
-   (if you can) HWiNFO's "ASUS EC" readings from Windows.
-5. `sudo rmmod ec_sys` when done.
+**What you need:** an ASUS board, the name from
+`cat /sys/class/dmi/id/board_name` (vendor must be `ASUSTeK COMPUTER INC.`),
+and the `iasl` tool (Arch: `acpica`).
+
+1. **Find your board's EC layout and lock.**
+   - The family is set by the chipset: AMD 800-series (X870E/X870/B850/B840)
+     use the same registers as this board; AMD 600, 500, Intel boards differ
+     (see the `sensors_family_*` tables in `module/asus-ec-sensors.c`).
+   - Dump and decompile the ACPI DSDT:
+     `sudo cat /sys/firmware/acpi/tables/DSDT > dsdt.dat && iasl -d dsdt.dat`.
+     In `dsdt.dsl` look for the EC device (`PNP0C09`) and for a `Mutex`
+     inside `Device (SIO1)` (on this board `\_SB_.PCI0.SBRG.SIO1.MUT0`). If
+     there is none, the driver can use `:GLOBAL_LOCK`.
+2. **Read the EC, read-only.**
+   ```sh
+   sudo modprobe ec_sys write_support=0
+   sudo tools/ec-sample.sh 30 2      # 30 samples, 2 s apart
+   sudo tools/ec-sample.sh dump      # one full hex dump of the current bank
+   sudo rmmod ec_sys
+   ```
+   The script refuses to run if write support is on. Never load `ec_sys`
+   with `write_support=1`.
+3. **Match each register to a real sensor.** For every register you want to
+   add, show it next to something independent, sampled at the same moment:
+   - CPU / CPU Package vs `k10temp` Tctl (should follow it);
+   - Motherboard vs the Super I/O SYSTIN (`nct67xx` block);
+   - fans vs the BIOS Monitor page or the Super I/O fan inputs (a CPU_OPT fan
+     usually follows the CPU fan's PWM);
+   - VRM: plausible idle value (30-55 °C) and, if you are willing, a rise
+     under load; there is usually nothing else on Linux to compare with;
+   - T_Sensor: plug a 10 kΩ thermistor into T_SENSOR; unplugged headers read
+     -40 or -62.
+   Comparing with the BIOS Monitor page or with HWiNFO's "ASUS EC" section on
+   Windows is also good evidence. No stress test is needed; idle plus normal
+   use is fine. Watch the `bank` column: if it is not 0, skip that sample.
+4. **Add the board** (keep both lists alphabetical; check with
+   `tools/check-order.sh`): one `static const struct ec_board_info
+   board_info_<name>` entry and one `DMI_EXACT_MATCH_ASUS_BOARD_NAME(...)`
+   line in `module/asus-ec-sensors.c`, then a row in the table in
+   [Supported hardware](#1-supported-hardware).
+5. **Test**: `cd module && make && sudo insmod asus-ec-sensors.ko` (unload
+   any loaded copy first with `sudo rmmod asus_ec_sensors`), then
+   `sensors 'asusec-*'` and `sudo dmesg | grep asus-ec`.
+6. **Send** a pull request or an issue with:
+   - `board_name`, BIOS version, CPU;
+   - the `ec-sample.sh` output and the reference sensors you compared with;
+   - which registers you added and how confident you are in each;
+   - the mutex path you used and where in the DSDT you found it;
+   - the binary `dsdt.dat` (not the decompiled text), if you are OK sharing it;
+   - a `Signed-off-by:` line with a real email, so the board can go upstream.
+
+Every board added here should also be sent to the kernel driver (see
+[Upstream status](#12-upstream-status)); once it is merged there, the row
+moves out of this project.
 
 ---
 

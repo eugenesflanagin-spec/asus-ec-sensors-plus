@@ -1,4 +1,4 @@
-# Build, install-test and release the asus-ec-sensors-x870tuf-dkms package.
+# Build, install-test and release the asus-ec-sensors-plus-dkms package.
 #
 # How it runs:
 #   * Push a tag like v0.1.0  -> builds the module and the Arch package, tests
@@ -77,7 +77,7 @@ jobs:
           make -C module KDIR="$KDIR"
           modinfo module/asus-ec-sensors.ko | tee modinfo.txt
           grep -q 'TUFGAMINGX870-PROWIFI7WNEO' modinfo.txt
-          grep -q "^version: *$VER-x870tuf" modinfo.txt
+          grep -q "^version: *$VER-plus" modinfo.txt
           make -C module KDIR="$KDIR" clean
       - name: Check the board lists are in alphabetical order
         run: tools/check-order.sh module/asus-ec-sensors.c
@@ -89,8 +89,8 @@ jobs:
           sudo -u builder git config --global --add safe.directory "$PWD"
           sudo -u builder tools/build-local-pkg.sh
           mkdir -p out
-          cp asus-ec-sensors-x870tuf-dkms-"$VER"-*-any.pkg.tar.zst out/
-          git archive --format=tar.gz --prefix="asus-ec-sensors-x870tuf-$VER/" -o "out/asus-ec-sensors-x870tuf-$VER.tar.gz" HEAD
+          cp asus-ec-sensors-plus-dkms-"$VER"-*-any.pkg.tar.zst out/
+          git archive --format=tar.gz --prefix="asus-ec-sensors-plus-$VER/" -o "out/asus-ec-sensors-plus-$VER.tar.gz" HEAD
           ls -l out
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -115,21 +115,21 @@ jobs:
         run: |
           # "linux" too: the DKMS hook needs the kernel's modules tree, not just headers
           pacman -Syu --noconfirm --needed linux linux-headers dkms clang lld
-          pacman -U --noconfirm built/asus-ec-sensors-x870tuf-dkms-"$VER"-*-any.pkg.tar.zst
+          pacman -U --noconfirm built/asus-ec-sensors-plus-dkms-"$VER"-*-any.pkg.tar.zst
       - name: Check DKMS built and installed the module
         run: |
           dkms status | tee dkms.txt
-          grep -q "asus-ec-sensors-x870tuf/$VER.*installed" dkms.txt
+          grep -q "asus-ec-sensors-plus/$VER.*installed" dkms.txt
           KVER=$(ls /usr/lib/modules | grep -v extramodules | head -1)
           KO=$(find "/usr/lib/modules/$KVER/updates" -name 'asus-ec-sensors.ko*' | head -1)
           [ -n "$KO" ] || { echo "::error::module not in updates/"; exit 1; }
           modinfo "$KO" | tee modinfo.txt
           grep -q 'TUFGAMINGX870-PROWIFI7WNEO' modinfo.txt
-          grep -q "^version: *$VER-x870tuf" modinfo.txt
+          grep -q "^version: *$VER-plus" modinfo.txt
       - name: Uninstall cleanly
         run: |
-          pacman -R --noconfirm asus-ec-sensors-x870tuf-dkms
-          ! dkms status | grep -q asus-ec-sensors-x870tuf
+          pacman -R --noconfirm asus-ec-sensors-plus-dkms
+          ! dkms status | grep -q asus-ec-sensors-plus
 
   # 4. Collect the release files, write SHA256SUMS.
   assemble:
@@ -182,7 +182,7 @@ jobs:
       - name: Create the release
         run: |
           ls -l release
-          TITLE="asus-ec-sensors-x870tuf $VER"
+          TITLE="asus-ec-sensors-plus $VER"
           if state=$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null); then
             if [ "$state" = true ]; then
               gh release upload "$TAG" release/* --clobber

@@ -16,7 +16,7 @@ First release.
   bank register is read before and after each poll and never written; a poll
   is skipped if the firmware has the EC on another bank.
 - Values older than 5 seconds are reported as N/A (`-ENODATA`).
-- `MODULE_VERSION` (`0.1.0-x870tuf`) so the loaded build can be identified.
+- `MODULE_VERSION` (`0.1.0-plus`) so the loaded build can be identified.
 - DKMS packaging (`module/dkms.conf`), automatic `LLVM=1` for clang-built
   kernels, Arch `PKGBUILD`, `tools/build-local-pkg.sh`.
 - `tools/ec-sample.sh`: read-only EC sampler for checking boards

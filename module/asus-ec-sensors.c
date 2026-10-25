@@ -5,7 +5,7 @@
  *
  * Copyright (C) 2021 Eugene Shalygin <eugene.shalygin@gmail.com>
  *
- * Modified by Eugene Flanagin, 2026 (asus-ec-sensors-x870tuf):
+ * Modified by Eugene Flanagin, 2026 (asus-ec-sensors-plus):
  * - added TUF GAMING X870-PRO WIFI7 W NEO
  * - EC access is read-only (no bank register writes) for boards whose
  *   sensors all live in EC bank 0; see asus_ec_block_read().
@@ -43,8 +43,8 @@
 
 #include <linux/unaligned.h>
 
-#ifndef ASUS_EC_X870TUF_VERSION
-#define ASUS_EC_X870TUF_VERSION "0.1.0-x870tuf"
+#ifndef ASUS_EC_PLUS_VERSION
+#define ASUS_EC_PLUS_VERSION "0.1.0-plus"
 #endif
 
 static char *mutex_path_override;
@@ -62,7 +62,7 @@ static char *mutex_path_override;
 
 #define ACPI_LOCK_DELAY_MS	800
 
-/* x870tuf: values older than this are reported as N/A (-ENODATA) */
+/* plus: values older than this are reported as N/A (-ENODATA) */
 #define ASUS_EC_MAX_STALE_SECONDS	5
 
 /* ACPI mutex for locking access to the EC for the firmware */
@@ -1088,7 +1088,7 @@ struct ec_sensors_data {
 	u8 banks[ASUS_EC_MAX_BANK + 1];
 	/* in jiffies */
 	u64 next_update;
-	/* jiffies of the last successful EC read, 0 = never (x870tuf) */
+	/* jiffies of the last successful EC read, 0 = never (plus) */
 	u64 last_good;
 	struct lock_data lock_data;
 	/* number of board EC sensors */
@@ -1288,7 +1288,7 @@ static int asus_ec_block_read_banked(const struct device *dev,
 }
 
 /*
- * Read-only variant (asus-ec-sensors-x870tuf): this function never writes to
+ * Read-only variant (asus-ec-sensors-plus): this function never writes to
  * the EC. The mainline driver switches the EC bank by writing register 0xff
  * and writes the previous bank back after every poll. Here we only read the
  * bank register (before and after reading); if the EC is not on bank 0, the
@@ -1429,7 +1429,7 @@ static int get_cached_value_or_update(const struct device *dev,
 	}
 
 	/*
-	 * x870tuf: if the firmware has kept the EC on another bank for a
+	 * plus: if the firmware has kept the EC on another bank for a
 	 * while, do not hand out old numbers; report "no data" (N/A) instead.
 	 */
 	if (!state->last_good ||
@@ -1720,7 +1720,7 @@ MODULE_PARM_DESC(mutex_path,
 		 "Override ACPI mutex path used to guard access to hardware");
 
 MODULE_AUTHOR("Eugene Shalygin <eugene.shalygin@gmail.com>");
-MODULE_VERSION(ASUS_EC_X870TUF_VERSION);
+MODULE_VERSION(ASUS_EC_PLUS_VERSION);
 MODULE_DESCRIPTION(
 	"HWMON driver for sensors accessible via ACPI EC in ASUS motherboards");
 MODULE_LICENSE("GPL");
