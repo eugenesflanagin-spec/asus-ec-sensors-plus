@@ -1,0 +1,13 @@
+# kernel build output
+/module/*.o
+/module/*.ko
+/module/*.mod
+/module/*.mod.c
+/module/.*.cmd
+/module/Module.symvers
+/module/modules.order
+# makepkg output (makepkg uses ./src and ./pkg as work dirs)
+/src/
+/pkg/
+/*.tar.gz
+/*.pkg.tar.*

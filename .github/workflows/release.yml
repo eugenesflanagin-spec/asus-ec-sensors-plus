@@ -1,0 +1,196 @@
+# Build, install-test and release the asus-ec-sensors-x870tuf-dkms package.
+#
+# How it runs:
+#   * Push a tag like v0.1.0  -> builds the module and the Arch package, tests
+#     them, and (only if everything passes) creates the GitHub release with the
+#     package, the source tarball, the upstream patch and SHA256SUMS attached.
+#   * "Run workflow" button (or: gh workflow run release.yml --ref BRANCH)
+#     -> same builds and tests, but NO release: the files are kept as
+#     downloadable "artifacts" on the workflow run page for a few days.
+#
+# Everything runs inside a fresh archlinux:base-devel container. There is no
+# booted Arch kernel in CI, so the module is built against whatever kernel
+# headers the container installs (linux-headers = the current Arch kernel).
+
+name: Release package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # 1. Check the version numbers agree, and the tag matches them.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read and cross-check the version
+        id: ver
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          VER=$(cat module/VERSION)
+          PKGVER=$(sed -n 's/^pkgver=//p' PKGBUILD)
+          DKMSVER=$(sed -n 's/^PACKAGE_VERSION="\(.*\)"/\1/p' module/dkms.conf)
+          echo "module/VERSION=$VER PKGBUILD pkgver=$PKGVER dkms.conf=$DKMSVER"
+          [ "$VER" = "$PKGVER" ] && [ "$VER" = "$DKMSVER" ] || { echo "::error::version numbers differ"; exit 1; }
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$VER" ]; then
+            echo "::error::tag $REF_NAME does not match version v$VER"; exit 1
+          fi
+          grep -q "^## \[$VER\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no [$VER] section"; exit 1; }
+          [ -f "docs/release-notes/v$VER.md" ] || { echo "::error::docs/release-notes/v$VER.md missing"; exit 1; }
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+  # 2. Build the module directly against the Arch kernel headers (fast check
+  #    that the C code compiles, plus the board-order check), then build the
+  #    Arch package with makepkg.
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      VER: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Install build tools and kernel headers
+        run: pacman -Syu --noconfirm --needed git linux-headers clang lld
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Compile the module against linux-headers
+        run: |
+          KDIR=$(ls -d /usr/lib/modules/*/build | head -1)
+          echo "Building against $KDIR"
+          make -C module KDIR="$KDIR"
+          modinfo module/asus-ec-sensors.ko | tee modinfo.txt
+          grep -q 'TUFGAMINGX870-PROWIFI7WNEO' modinfo.txt
+          grep -q "^version: *$VER-x870tuf" modinfo.txt
+          make -C module KDIR="$KDIR" clean
+      - name: Check the board lists are in alphabetical order
+        run: tools/check-order.sh module/asus-ec-sensors.c
+      - name: Build the Arch package (makepkg refuses to run as root)
+        run: |
+          useradd -m builder
+          git config --global --add safe.directory "$PWD"
+          chown -R builder: .
+          sudo -u builder git config --global --add safe.directory "$PWD"
+          sudo -u builder tools/build-local-pkg.sh
+          mkdir -p out
+          cp asus-ec-sensors-x870tuf-dkms-"$VER"-*-any.pkg.tar.zst out/
+          git archive --format=tar.gz --prefix="asus-ec-sensors-x870tuf-$VER/" -o "out/asus-ec-sensors-x870tuf-$VER.tar.gz" HEAD
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pkg
+          path: out/
+          if-no-files-found: error
+
+  # 3. Install the package in a FRESH container; the pacman DKMS hook must
+  #    build the module for the installed linux-headers.
+  test:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      VER: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pkg
+          path: built/
+      - name: Install linux-headers + dkms, then the package
+        run: |
+          pacman -Syu --noconfirm --needed linux-headers dkms clang lld
+          pacman -U --noconfirm built/asus-ec-sensors-x870tuf-dkms-"$VER"-*-any.pkg.tar.zst
+      - name: Check DKMS built and installed the module
+        run: |
+          dkms status | tee dkms.txt
+          grep -q "asus-ec-sensors-x870tuf/$VER.*installed" dkms.txt
+          KVER=$(ls /usr/lib/modules | grep -v extramodules | head -1)
+          KO=$(find "/usr/lib/modules/$KVER/updates" -name 'asus-ec-sensors.ko*' | head -1)
+          [ -n "$KO" ] || { echo "::error::module not in updates/"; exit 1; }
+          modinfo "$KO" | tee modinfo.txt
+          grep -q 'TUFGAMINGX870-PROWIFI7WNEO' modinfo.txt
+          grep -q "^version: *$VER-x870tuf" modinfo.txt
+      - name: Uninstall cleanly
+        run: |
+          pacman -R --noconfirm asus-ec-sensors-x870tuf-dkms
+          ! dkms status | grep -q asus-ec-sensors-x870tuf
+
+  # 4. Collect the release files, write SHA256SUMS.
+  assemble:
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    env:
+      VER: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pkg
+          path: built/
+      - name: Collect the files and write SHA256SUMS
+        run: |
+          mkdir -p release
+          cp built/* release/
+          cp upstream/0001-*.patch release/
+          (cd release && sha256sum -- * > SHA256SUMS)
+          n=$(find release -type f | wc -l); [ "$n" -eq 4 ] || { echo "::error::expected 4 release files, got $n"; ls -l release; exit 1; }
+          ls -l release; cat release/SHA256SUMS
+          cp "docs/release-notes/v$VER.md" release-notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            release/
+            release-notes.md
+          if-no-files-found: error
+
+  # 5. Create the GitHub release (tag pushes only, after all tests passed).
+  release:
+    if: github.ref_type == 'tag'
+    needs: [prepare, assemble]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      VER: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: .
+      - name: Create the release
+        run: |
+          ls -l release
+          TITLE="asus-ec-sensors-x870tuf $VER"
+          if state=$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null); then
+            if [ "$state" = true ]; then
+              gh release upload "$TAG" release/* --clobber
+              gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md --draft=false
+            else
+              echo "::error::release $TAG is already published; delete it first (gh release delete $TAG) to rebuild it"
+              exit 1
+            fi
+          else
+            gh release create "$TAG" release/* --verify-tag --title "$TITLE" --notes-file release-notes.md
+          fi
+          gh release view "$TAG" --json url,assets -q '.url, (.assets[] | .name)'

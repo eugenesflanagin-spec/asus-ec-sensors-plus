@@ -1,0 +1,85 @@
+From 7defd0666a523d57ec29169fc276670a459e8d2e Mon Sep 17 00:00:00 2001
+From: Eugene Flanagin <eflanagin@pm.me>
+Date: Sun, 25 Oct 2026 14:15:55 -0400
+Subject: [PATCH] hwmon: (asus-ec-sensors) add TUF GAMING X870-PRO WIFI7 W NEO
+
+Add support for the TUF GAMING X870-PRO WIFI7 W NEO. The board uses
+the AMD 800-series EC register layout, and the ACPI mutex
+\_SB_.PCI0.SBRG.SIO1.MUT0 exists in its DSDT, as on the other X870
+boards.
+
+The sensors were checked against other drivers on BIOS 1805 with a
+Ryzen 7 7800X3D at idle and light desktop use:
+ - CPU Package (0x31) follows k10temp Tctl within 1-2 degC
+ - CPU (0x30) moves with Tctl, about 10 degC lower
+ - Motherboard (0x32) equals the nct6799 SYSTIN reading
+ - VRM (0x33) reads 39-42 degC at idle
+ - CPU_Opt (0xb0) reads 520-1270 RPM and follows the CPU fan duty
+   cycle, and matches none of the nct6799 fan inputs
+
+T_Sensor is not added: with nothing plugged into the header, 0x36
+reads 0 and 0x35 reads -62, so it could not be checked.
+
+Signed-off-by: Eugene Flanagin <eflanagin@pm.me>
+---
+Notes (not part of the commit message):
+
+On this board the EC bank register (0xff) was seen at 1 or 2 for periods
+of a few seconds up to about two minutes, with no OS-side writer: it
+happened with asus-ec-sensors unloaded and only ec_sys (write_support=0)
+reading the EC. asus_ec_block_read() reads the bank first, warns about
+concurrent access, switches to bank 0 and at the end writes the old
+bank back through asus_ec_bank_switch(prev_bank, NULL), which writes
+0xff on every poll even when nothing changed. That is unchanged by this
+patch, but it means the driver and the firmware fight over the bank
+register on this board. Happy to test a change to that logic.
+
+ACPI DSDT (binary) for BIOS 1805 can be provided on request.
+
+ Documentation/hwmon/asus_ec_sensors.rst |  1 +
+ drivers/hwmon/asus-ec-sensors.c         | 10 ++++++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/Documentation/hwmon/asus_ec_sensors.rst b/Documentation/hwmon/asus_ec_sensors.rst
+index 7032c40..364bdd8 100644
+--- a/Documentation/hwmon/asus_ec_sensors.rst
++++ b/Documentation/hwmon/asus_ec_sensors.rst
+@@ -66,6 +66,7 @@ Supported boards:
+  * ROG ZENITH II EXTREME ALPHA
+  * TUF GAMING X670E PLUS
+  * TUF GAMING X670E PLUS WIFI
++ * TUF GAMING X870-PRO WIFI7 W NEO
+ 
+ Authors:
+     - Eugene Shalygin <eugene.shalygin@gmail.com>
+diff --git a/drivers/hwmon/asus-ec-sensors.c b/drivers/hwmon/asus-ec-sensors.c
+index 19f423e..3d06a9c 100644
+--- a/drivers/hwmon/asus-ec-sensors.c
++++ b/drivers/hwmon/asus-ec-sensors.c
+@@ -857,6 +857,14 @@ static const struct ec_board_info board_info_tuf_gaming_x670e_plus = {
+ 	.family = family_amd_600_series,
+ };
+ 
++static const struct ec_board_info board_info_tuf_gaming_x870_pro_wifi7_w_neo = {
++	.sensors = SENSOR_TEMP_CPU | SENSOR_TEMP_CPU_PACKAGE |
++		SENSOR_TEMP_MB | SENSOR_TEMP_VRM |
++		SENSOR_FAN_CPU_OPT,
++	.mutex_path = ASUS_HW_ACCESS_MUTEX_SB_PCI0_SBRG_SIO1_MUT0,
++	.family = family_amd_800_series,
++};
++
+ static const struct ec_board_info board_info_zenith_ii_extreme = {
+ 	.sensors = SENSOR_SET_TEMP_CHIPSET_CPU_MB | SENSOR_TEMP_T_SENSOR |
+ 		SENSOR_TEMP_VRM | SENSOR_SET_TEMP_WATER |
+@@ -1004,6 +1012,8 @@ static const struct dmi_system_id dmi_table[] = {
+ 					&board_info_tuf_gaming_x670e_plus),
+ 	DMI_EXACT_MATCH_ASUS_BOARD_NAME("TUF GAMING X670E-PLUS WIFI",
+ 					&board_info_tuf_gaming_x670e_plus),
++	DMI_EXACT_MATCH_ASUS_BOARD_NAME("TUF GAMING X870-PRO WIFI7 W NEO",
++					&board_info_tuf_gaming_x870_pro_wifi7_w_neo),
+ 	{},
+ };
+ 
+-- 
+2.56.0
+
