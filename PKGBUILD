@@ -10,7 +10,7 @@
 pkgname=asus-ec-sensors-plus-dkms
 _repo=asus-ec-sensors-plus
 _dkmsname=asus-ec-sensors-plus
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="ASUS motherboard EC sensors (VRM, CPU, motherboard, CPU_OPT fan) for boards not yet in the kernel, e.g. TUF GAMING X870-PRO WIFI7 W NEO; read-only DKMS build of asus-ec-sensors"
 arch=('any')
@@ -22,7 +22,7 @@ optdepends=('lm_sensors: the "sensors" command to read the values'
 conflicts=('asus-ec-sensors-dkms-git' 'asus-ec-sensors-x870tuf-dkms')
 replaces=('asus-ec-sensors-x870tuf-dkms')
 source=("${_repo}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-# Fill in after the v0.1.0 GitHub release exists (updpkgsums).
+# Fill in after the v0.1.1 GitHub release exists (updpkgsums).
 sha256sums=('SKIP')
 
 prepare() {
@@ -39,5 +39,7 @@ package() {
   install -Dm644 -t "${dest}" module/asus-ec-sensors.c module/Kbuild module/Makefile module/VERSION module/dkms.conf
   install -Dm644 -t "${pkgdir}/usr/share/doc/${pkgname}" README.md CHANGELOG.md CREDITS.md
   install -Dm755 tools/ec-sample.sh "${pkgdir}/usr/share/doc/${pkgname}/ec-sample.sh"
+  # example only - NOT installed into /etc/modprobe.d (see README "bank_switch")
+  install -Dm644 examples/asus-ec-sensors-plus.conf "${pkgdir}/usr/share/doc/${pkgname}/examples/asus-ec-sensors-plus.conf"
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

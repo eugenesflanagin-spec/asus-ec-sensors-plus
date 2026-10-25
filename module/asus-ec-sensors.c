@@ -8,7 +8,8 @@
  * Modified by Eugene Flanagin, 2026 (asus-ec-sensors-plus):
  * - added TUF GAMING X870-PRO WIFI7 W NEO
  * - EC access is read-only (no bank register writes) for boards whose
- *   sensors all live in EC bank 0; see asus_ec_block_read().
+ *   sensors all live in EC bank 0, unless bank_switch=1; see
+ *   asus_ec_block_read().
  * Based on drivers/hwmon/asus-ec-sensors.c from the hwmon-next tree,
  * commit b67f60ae9b0b ("hwmon: (asus-ec-sensors) add ROG STRIX Z490-A GAMING").
 
@@ -44,7 +45,7 @@
 #include <linux/unaligned.h>
 
 #ifndef ASUS_EC_PLUS_VERSION
-#define ASUS_EC_PLUS_VERSION "0.1.0-plus"
+#define ASUS_EC_PLUS_VERSION "0.1.1-plus"
 #endif
 
 static char *mutex_path_override;
@@ -1288,19 +1289,34 @@ static int asus_ec_block_read_banked(const struct device *dev,
 }
 
 /*
- * Read-only variant (asus-ec-sensors-plus): this function never writes to
- * the EC. The mainline driver switches the EC bank by writing register 0xff
- * and writes the previous bank back after every poll. Here we only read the
- * bank register (before and after reading); if the EC is not on bank 0, the
- * poll is skipped and the previous values are kept. This path is used when
- * every sensor of the board is in bank 0, which is the case for the TUF
- * GAMING X870-PRO WIFI7 W NEO and all other AMD 800-series boards.
+ * plus: bank_switch module parameter.
+ *   0 (default): strictly read-only, the EC is never written (see below).
+ *   1: if the firmware has left the EC on another bank, switch it to bank 0
+ *      for this poll and switch it back afterwards, like the mainline driver
+ *      and LibreHardwareMonitor do. The only register ever written is the
+ *      bank register 0xff, and only with 0 or the value read from it.
+ */
+static bool bank_switch;
+module_param(bank_switch, bool, 0444);
+MODULE_PARM_DESC(bank_switch,
+		 "Switch the EC to bank 0 for each poll and restore it (default: off, never write to the EC)");
+
+/*
+ * Read-only variant (asus-ec-sensors-plus): with bank_switch=0 this function
+ * never writes to the EC. The mainline driver switches the EC bank by writing
+ * register 0xff and writes the previous bank back after every poll. Here we
+ * only read the bank register (before and after reading); if the EC is not on
+ * bank 0, the poll is skipped and the previous values are kept. This path is
+ * used when every sensor of the board is in bank 0, which is the case for the
+ * TUF GAMING X870-PRO WIFI7 W NEO and all other AMD 800-series boards.
+ * Called with the ACPI mutex held (see update_ec_sensors()).
  */
 static int asus_ec_block_read(const struct device *dev,
 			      struct ec_sensors_data *ec)
 {
 	int ireg, status;
-	u8 cur_bank;
+	u8 orig_bank, cur_bank;
+	bool switched = false;
 
 	/*
 	 * Boards with sensors in other banks (none of the X870 boards) keep
@@ -1309,16 +1325,25 @@ static int asus_ec_block_read(const struct device *dev,
 	if (ec->nr_banks != 1 || ec->banks[0] != 0)
 		return asus_ec_block_read_banked(dev, ec);
 
-	status = ec_read(ASUS_EC_BANK_REGISTER, &cur_bank);
+	status = ec_read(ASUS_EC_BANK_REGISTER, &orig_bank);
 	if (status) {
 		dev_warn(dev, "EC bank register read failed");
 		return status;
 	}
 
-	if (cur_bank != 0) {
-		/* firmware is using another bank right now: do not touch it */
-		dev_dbg(dev, "EC is on bank %u, skipping this poll", cur_bank);
-		return -EBUSY;
+	if (orig_bank != 0) {
+		if (!bank_switch) {
+			/* firmware is using another bank: do not touch it */
+			dev_dbg(dev, "EC is on bank %u, skipping this poll",
+				orig_bank);
+			return -EBUSY;
+		}
+		status = ec_write(ASUS_EC_BANK_REGISTER, 0);
+		if (status) {
+			dev_warn(dev, "EC bank switch to 0 failed");
+			return status;
+		}
+		switched = true;
 	}
 
 	for (ireg = 0; ireg < ec->nr_registers; ireg++)
@@ -1326,14 +1351,22 @@ static int asus_ec_block_read(const struct device *dev,
 			ec->read_buffer + ireg);
 
 	/*
-	 * Firmware was seen switching this EC to bank 2 for a few seconds at
-	 * a time. Check the bank again: if it changed while we were reading,
-	 * the values may come from the wrong bank, so throw them away.
+	 * Check the bank again: if it changed while we were reading, the
+	 * values may come from the wrong bank, so throw them away. In that
+	 * case the firmware has taken over the bank register; leave it alone.
 	 */
 	status = ec_read(ASUS_EC_BANK_REGISTER, &cur_bank);
 	if (status || cur_bank != 0) {
 		dev_dbg(dev, "EC bank changed during read, discarding");
 		return -EBUSY;
+	}
+
+	if (switched) {
+		status = ec_write(ASUS_EC_BANK_REGISTER, orig_bank);
+		if (status) {
+			dev_warn(dev, "EC bank restore to %u failed", orig_bank);
+			return status;
+		}
 	}
 
 	return 0;
