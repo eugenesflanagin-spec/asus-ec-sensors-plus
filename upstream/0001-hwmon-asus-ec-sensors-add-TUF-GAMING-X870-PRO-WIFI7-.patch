@@ -25,9 +25,9 @@ Signed-off-by: Eugene Flanagin <eflanagin@pm.me>
 Notes (not part of the commit message):
 
 On this board the EC bank register (0xff) was seen at 1 or 2 for periods
-of a few seconds up to more than 25 minutes. It happened with
+of a few seconds up to more than 30 minutes. It happened with
 asus-ec-sensors unloaded, both while ec_sys (write_support=0) was
-reading the EC and during 15 minutes with nothing reading it at all;
+reading the EC and during 20 minutes with nothing reading it at all;
 nothing on the OS side wrote to it. asus_ec_block_read() reads
 the bank first, warns about concurrent access, switches to bank 0, and
 at the end writes the old bank back through
