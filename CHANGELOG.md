@@ -2,6 +2,22 @@
 
 All notable changes to this project. Dates are YYYY-MM-DD.
 
+## [0.1.1] - 2026-10-25
+
+### Added
+- `bank_switch` module parameter (default off). With `bank_switch=1`, if the
+  firmware has left the EC on another bank, the driver switches the bank
+  register `0xFF` to 0 for the poll and writes the original value back,
+  under the firmware's ACPI mutex, like the kernel's own driver and
+  LibreHardwareMonitor. No other register is ever written. On the TUF
+  GAMING X870-PRO WIFI7 W NEO this gives values on every poll (310 of 310
+  in a 19-minute test) instead of long N/A periods.
+- `examples/asus-ec-sensors-plus.conf`: optional `/etc/modprobe.d` file that
+  turns it on (installed as an example only, not active by default).
+
+### Changed
+- README: how and when to use `bank_switch`, test results, safety notes.
+
 ## [0.1.0] - 2026-10-25
 
 First release.

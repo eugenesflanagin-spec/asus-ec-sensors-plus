@@ -10,9 +10,12 @@ The first added board is the **ASUS TUF GAMING X870-PRO WIFI7 W NEO**; more
 can be added (see [Add your board](#11-add-your-board)). After installing,
 `sensors` shows a new block called `asusec-isa-000a`.
 
-It is **read-only** on every board whose sensors sit in EC bank 0 (all
-AMD 800-series boards): it only ever reads from the EC, never writes to it,
-and never touches fans or fan control.
+By default it is **read-only** on every board whose sensors sit in EC bank 0
+(all AMD 800-series boards): it only ever reads from the EC, never writes to
+it, and never touches fans or fan control. An optional setting,
+`bank_switch=1`, allows one well-known write (the EC's page-select register,
+put back right after each read) so the values are there all the time; see
+[Known limitations](#8-known-limitations).
 
 Example (TUF GAMING X870-PRO WIFI7 W NEO):
 
@@ -26,12 +29,13 @@ Motherboard:  +22.0°C
 VRM:          +40.0°C
 ```
 
-**Status: experimental.** The values are right when they are there, but on
-the TUF X870-PRO they are often **N/A for minutes at a time**, because the firmware
-keeps the EC busy and this build refuses to interrupt it. Read
-[Known limitations](#8-known-limitations) first.
+**Status: experimental.** The values are right when they are there. With the
+default settings, on the TUF X870-PRO they are often **N/A for minutes at a
+time**, because the firmware keeps the EC on another bank and the default
+build refuses to interrupt it. With `bank_switch=1` they were there for every
+single poll in testing. Read [Known limitations](#8-known-limitations) first.
 
-Version 0.1.0. Licence GPL-2.0-only (the driver file keeps its original
+Version 0.1.1. Licence GPL-2.0-only (the driver file keeps its original
 GPL-2.0-or-later notice). See [CREDITS.md](CREDITS.md) for where everything
 came from.
 
@@ -181,7 +185,7 @@ You need the headers for each kernel you use (`linux-headers`,
 **From a release** (when there is one on GitHub):
 
 ```sh
-sudo pacman -U asus-ec-sensors-plus-dkms-0.1.0-1-any.pkg.tar.zst
+sudo pacman -U asus-ec-sensors-plus-dkms-0.1.1-1-any.pkg.tar.zst
 ```
 
 **From this git checkout:**
@@ -250,7 +254,7 @@ You should see the five sensors from section 2. Make sure it is this build
 and not the kernel's own:
 
 ```sh
-cat /sys/module/asus_ec_sensors/version   # 0.1.0-plus
+cat /sys/module/asus_ec_sensors/version   # 0.1.1-plus
 modinfo -n asus_ec_sensors                 # .../updates/dkms/asus-ec-sensors.ko...
 sudo dmesg | grep asus-ec                  # "board has 5 EC sensors that span 6 registers"
 ```
@@ -273,8 +277,8 @@ Generic DKMS:
 
 ```sh
 sudo modprobe -r asus_ec_sensors
-sudo dkms remove -m asus-ec-sensors-plus -v 0.1.0 --all
-sudo rm -r /usr/src/asus-ec-sensors-plus-0.1.0
+sudo dkms remove -m asus-ec-sensors-plus -v 0.1.1 --all
+sudo rm -r /usr/src/asus-ec-sensors-plus-0.1.1
 ```
 
 Once your kernel has the board itself (see [Upstream status](#12-upstream-status)),
@@ -307,17 +311,46 @@ reading. In an earlier 5-minute stretch it never left bank 0, so it comes
 and goes. So: good for looking at temperatures now and then,
 **not** good enough for logging or fan curves.
 
-**Why not just switch the bank like everyone else?** The kernel's own
-driver, LibreHardwareMonitor and (as far as is known) HWiNFO all do it:
-write 0 to the bank register, read, write the old bank back, while holding
-the firmware's lock. That is the normal way and would give values all the
-time. This build deliberately does not, because it was made under a strict
-"never write to the EC" rule. If you are comfortable with that one write,
-the kernel's own driver will do it once this board is added upstream (see
-`upstream/`).
+### The fix: `bank_switch=1` (optional, since 0.1.1)
+
+**In plain words:** let the driver flip the EC to the sensor page, read, and
+flip it straight back, the same way the kernel's own driver,
+LibreHardwareMonitor and (as far as is known) HWiNFO always do it.
+
+What it does, for each poll, while holding the firmware's ACPI lock:
+
+1. read the bank register `0xFF` and remember it,
+2. if it is not 0: write 0 to it,
+3. read the sensors,
+4. write the remembered value back.
+
+The **only** register ever written is `0xFF`, and only with 0 or the value
+that was just read from it. Fans, voltages and settings are never written.
+It is off by default. To turn it on:
+
+```
+sudo cp /usr/share/doc/asus-ec-sensors-plus-dkms/examples/asus-ec-sensors-plus.conf /etc/modprobe.d/
+sudo modprobe -r asus_ec_sensors && sudo modprobe asus_ec_sensors
+cat /sys/module/asus_ec_sensors/parameters/bank_switch     # Y = on
+```
+
+(or once, without the file: `sudo modprobe asus_ec_sensors bank_switch=1`).
+
+**Tested on the TUF GAMING X870-PRO WIFI7 W NEO (BIOS 1805), 2026-10-25:**
+310 polls, one every 3 seconds, over 19 minutes, idle and under load.
+
+| Check | Result |
+|---|---|
+| Values present | 310 of 310 polls (no N/A) |
+| Bank put back | yes: 1.5 s after each poll the EC was on whatever bank the firmware had chosen (bank 1 for the first 10 minutes, then bank 0, once bank 3) |
+| CPU Package vs. k10temp Tctl | within 0-4 °C (the two are read a moment apart) |
+| Fans and PWM (Super I/O) | followed the normal fan curve, nothing unusual |
+| Kernel log | clean |
 
 **Do not use these readings for fan control** (CoolerControl, fancontrol,
-fan2go ...) yet. Those tools will see the new `asusec` sensors automatically;
+fan2go ...) with the default settings. With `bank_switch=1` they are
+reliable in testing, but this is still a new driver: give it time before
+you let a fan curve depend on it. Those tools will see the new `asusec` sensors automatically;
 leave them on the Super I/O or k10temp sensors.
 
 **T_Sensor** is not enabled (see section 2).
@@ -333,7 +366,7 @@ leave them on the Super I/O or k10temp sensors.
 | `dmesg`: `Failed to get hardware access guard` or `mutex` error | different BIOS with a different ACPI mutex name | report it; try `sudo modprobe asus_ec_sensors mutex_path=:GLOBAL_LOCK` |
 | Loaded, but `sensors` shows only some boards' sensors / the wrong ones | the kernel's own copy loaded instead of this one | `modinfo -n asus_ec_sensors` must point to `updates/dkms`; run `sudo depmod -a` and reload |
 | `version` file missing or not `-plus` | same as above | same as above |
-| All values `N/A` | firmware has the EC on another bank right now | wait; it comes back (section 8). If it never does, report it with `sudo dmesg` output |
+| All values `N/A` | firmware has the EC on another bank right now | wait; it comes back (section 8), or turn on `bank_switch=1`. If it happens with `bank_switch=1`, report it with `sudo dmesg` output |
 | DKMS build fails with clang errors on a clang-built kernel | `clang`/`lld` not installed | install `clang` and `lld` (the Makefile adds `LLVM=1` itself) |
 | `Required key not available` when loading | Secure Boot needs signed modules | sign with your MOK key (section 5) |
 | Huge or random temperatures in `nct6799` AUXTIN lines | unused Super I/O inputs on this board | ignore; not related to this package |
@@ -343,10 +376,11 @@ leave them on the Super I/O or k10temp sensors.
 
 ## 10. Safety notes
 
-- **Read-only on this board.** On boards whose sensors all sit in EC bank 0
-  (this one and every AMD 800-series board), the module only uses the
-  kernel's `ec_read()`; the bank-switch write of the original driver is not
-  used. You can check this in `module/asus-ec-sensors.c`, function
+- **Read-only on this board by default.** On boards whose sensors all sit
+  in EC bank 0 (this one and every AMD 800-series board), the module only
+  uses the kernel's `ec_read()`; the bank-switch write of the original
+  driver is not used unless you set `bank_switch=1` (section 8), and then
+  the only register written is the bank register `0xFF`. You can check this in `module/asus-ec-sensors.c`, function
   `asus_ec_block_read()`.
 - For older boards that need other banks (some X570/X670E boards' water
   sensors), the original kernel code path is kept unchanged, and that path
