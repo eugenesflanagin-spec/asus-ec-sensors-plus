@@ -31,6 +31,7 @@ First release.
   minutes at a time, also with no driver loaded. In an 18-minute watch on
   2026-10-25 the EC was on bank 0 only about 54 % of the time (8 periods
   away from bank 0, median 20 s, longest 115 s), and right after that it
-  stayed on bank 1 for more than 9 minutes. During those periods all
+  stayed on bank 1 for more than 25 minutes, including 15 minutes with
+  nothing reading the EC at all. During those periods all
   sensors show N/A. Not suitable for logging or fan control.
 - T_Sensor not enabled (could not be tested; nothing plugged in).

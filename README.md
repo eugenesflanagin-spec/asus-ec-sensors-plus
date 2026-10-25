@@ -282,9 +282,12 @@ bank it simply waits:
 
 On the test PC, in an 18-minute watch, the EC was on bank 0 only about
 **54 %** of the time: 8 periods away from bank 0, typically about 20 seconds,
-up to about 2 minutes. Right after that it stayed on bank 1 for **more than
-9 minutes** in one go. In an earlier 5-minute stretch it never left bank 0,
-so it comes and goes. So: good for looking at temperatures now and then,
+up to about 2 minutes. After that it stayed on bank 1 for **more than
+25 minutes** in one go (14:28 to at least 14:55), and that included 15
+minutes in which nothing at all was reading the EC (driver and `ec_sys`
+unloaded, checked with single reads afterwards), so it is not caused by
+reading. In an earlier 5-minute stretch it never left bank 0, so it comes
+and goes. So: good for looking at temperatures now and then,
 **not** good enough for logging or fan curves.
 
 **Why not just switch the bank like everyone else?** The kernel's own

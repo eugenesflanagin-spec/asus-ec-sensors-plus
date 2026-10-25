@@ -25,14 +25,16 @@ Signed-off-by: Eugene Flanagin <eflanagin@pm.me>
 Notes (not part of the commit message):
 
 On this board the EC bank register (0xff) was seen at 1 or 2 for periods
-of a few seconds up to about two minutes, with no OS-side writer: it
-happened with asus-ec-sensors unloaded and only ec_sys (write_support=0)
-reading the EC. asus_ec_block_read() reads the bank first, warns about
-concurrent access, switches to bank 0 and at the end writes the old
-bank back through asus_ec_bank_switch(prev_bank, NULL), which writes
-0xff on every poll even when nothing changed. That is unchanged by this
-patch, but it means the driver and the firmware fight over the bank
-register on this board. Happy to test a change to that logic.
+of a few seconds up to more than 25 minutes. It happened with
+asus-ec-sensors unloaded, both while ec_sys (write_support=0) was
+reading the EC and during 15 minutes with nothing reading it at all;
+nothing on the OS side wrote to it. asus_ec_block_read() reads
+the bank first, warns about concurrent access, switches to bank 0, and
+at the end writes the old bank back through
+asus_ec_bank_switch(prev_bank, NULL), which writes 0xff on every poll
+even when nothing changed. That is unchanged by this patch, but it
+means the driver and the firmware compete for the bank register on
+this board. Happy to test a change to that logic.
 
 ACPI DSDT (binary) for BIOS 1805 can be provided on request.
 
