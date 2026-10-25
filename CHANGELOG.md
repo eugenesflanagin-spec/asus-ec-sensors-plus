@@ -30,6 +30,7 @@ First release.
 - The board's firmware keeps the EC on bank 1 (once bank 2) for seconds to
   minutes at a time, also with no driver loaded. In an 18-minute watch on
   2026-10-25 the EC was on bank 0 only about 54 % of the time (8 periods
-  away from bank 0, median 20 s, longest 115 s). During those periods all
-  sensors show N/A. Not suitable for fan control.
+  away from bank 0, median 20 s, longest 115 s), and right after that it
+  stayed on bank 1 for more than 9 minutes. During those periods all
+  sensors show N/A. Not suitable for logging or fan control.
 - T_Sensor not enabled (could not be tested; nothing plugged in).

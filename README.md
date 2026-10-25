@@ -21,6 +21,11 @@ Motherboard:  +22.0°C
 VRM:          +40.0°C
 ```
 
+**Status: experimental.** The values are right when they are there, but on
+this board they are often **N/A for minutes at a time**, because the firmware
+keeps the EC busy and this build refuses to interrupt it. Read
+[Known limitations](#8-known-limitations) first.
+
 Version 0.1.0. Licence GPL-2.0-only (the driver file keeps its original
 GPL-2.0-or-later notice). See [CREDITS.md](CREDITS.md) for where everything
 came from.
@@ -272,13 +277,24 @@ then back again. This package does not write, so while the EC is on another
 bank it simply waits:
 
 - for up to 5 seconds it keeps showing the last good values,
-- after that, every sensor shows **N/A** until the EC is back on bank 0.
+- after that, every sensor shows **N/A** until the EC is back on bank 0
+  (that can be many minutes).
 
 On the test PC, in an 18-minute watch, the EC was on bank 0 only about
 **54 %** of the time: 8 periods away from bank 0, typically about 20 seconds,
-the longest about 2 minutes. So: good for looking at temperatures, **not**
-good enough to drive fan curves. (In an earlier 5-minute stretch it never
-left bank 0, so it seems to come and go.)
+up to about 2 minutes. Right after that it stayed on bank 1 for **more than
+9 minutes** in one go. In an earlier 5-minute stretch it never left bank 0,
+so it comes and goes. So: good for looking at temperatures now and then,
+**not** good enough for logging or fan curves.
+
+**Why not just switch the bank like everyone else?** The kernel's own
+driver, LibreHardwareMonitor and (as far as is known) HWiNFO all do it:
+write 0 to the bank register, read, write the old bank back, while holding
+the firmware's lock. That is the normal way and would give values all the
+time. This build deliberately does not, because it was made under a strict
+"never write to the EC" rule. If you are comfortable with that one write,
+the kernel's own driver will do it once this board is added upstream (see
+`upstream/`).
 
 **Do not use these readings for fan control** (CoolerControl, fancontrol,
 fan2go ...) yet. Those tools will see the new `asusec` sensors automatically;
