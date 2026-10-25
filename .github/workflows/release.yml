@@ -111,9 +111,10 @@ jobs:
         with:
           name: pkg
           path: built/
-      - name: Install linux-headers + dkms, then the package
+      - name: Install linux + linux-headers + dkms, then the package
         run: |
-          pacman -Syu --noconfirm --needed linux-headers dkms clang lld
+          # "linux" too: the DKMS hook needs the kernel's modules tree, not just headers
+          pacman -Syu --noconfirm --needed linux linux-headers dkms clang lld
           pacman -U --noconfirm built/asus-ec-sensors-x870tuf-dkms-"$VER"-*-any.pkg.tar.zst
       - name: Check DKMS built and installed the module
         run: |
