@@ -8,8 +8,9 @@
  * Modified by Eugene Flanagin, 2026 (asus-ec-sensors-plus):
  * - added TUF GAMING X870-PRO WIFI7 W NEO
  * - EC access is read-only (no bank register writes) for boards whose
- *   sensors all live in EC bank 0, unless bank_switch=1; see
- *   asus_ec_block_read().
+ *   sensors all live in EC bank 0, unless bank switching is on
+ *   (bank_switch=1, or the "auto" default on boards flagged
+ *   .plus_bank_switch); see asus_ec_block_read().
  * Based on drivers/hwmon/asus-ec-sensors.c from the hwmon-next tree,
  * commit b67f60ae9b0b ("hwmon: (asus-ec-sensors) add ROG STRIX Z490-A GAMING").
 
@@ -45,7 +46,7 @@
 #include <linux/unaligned.h>
 
 #ifndef ASUS_EC_PLUS_VERSION
-#define ASUS_EC_PLUS_VERSION "0.1.1-plus"
+#define ASUS_EC_PLUS_VERSION "0.1.2-plus"
 #endif
 
 static char *mutex_path_override;
@@ -461,6 +462,11 @@ struct ec_board_info {
 	 */
 	const char *mutex_path;
 	enum board_family family;
+	/*
+	 * plus: the firmware is known to leave the EC on another bank for long
+	 * periods, so bank_switch=auto turns bank switching on for this board.
+	 */
+	bool plus_bank_switch;
 };
 
 static const struct ec_board_info board_info_crosshair_viii_dark_hero = {
@@ -878,6 +884,7 @@ static const struct ec_board_info board_info_tuf_gaming_x870_pro_wifi7_w_neo = {
 		SENSOR_FAN_CPU_OPT,
 	.mutex_path = ASUS_HW_ACCESS_MUTEX_SB_PCI0_SBRG_SIO1_MUT0,
 	.family = family_amd_800_series,
+	.plus_bank_switch = true,
 };
 
 static const struct ec_board_info board_info_zenith_ii_extreme = {
@@ -1290,19 +1297,77 @@ static int asus_ec_block_read_banked(const struct device *dev,
 
 /*
  * plus: bank_switch module parameter.
- *   0 (default): strictly read-only, the EC is never written (see below).
- *   1: if the firmware has left the EC on another bank, switch it to bank 0
- *      for this poll and switch it back afterwards, like the mainline driver
- *      and LibreHardwareMonitor do. The only register ever written is the
- *      bank register 0xff, and only with 0 or the value read from it.
+ *  -1 or "auto" (default): on for boards marked .plus_bank_switch (their
+ *     firmware is known to leave the EC on another bank for minutes), off
+ *     for every other board.
+ *   0 (also n/N/off): off, strictly read-only, the EC is never written.
+ *   1 (also y/Y/on, or the bare word "bank_switch"): always on.
+ * Any other value is rejected and the module does not load.
+ * 0 and 1 behave exactly as in 0.1.1 (where this was a bool parameter).
+ *
+ * "On" means: if the firmware has left the EC on another bank, switch it to
+ * bank 0 for this poll and switch it back afterwards, like the mainline
+ * driver and LibreHardwareMonitor do. The only register ever written is the
+ * bank register 0xff, and only with 0 or the value read from it; this
+ * happens with the ACPI hardware-access mutex held (update_ec_sensors()).
  */
-static bool bank_switch;
-module_param(bank_switch, bool, 0444);
+#define BANK_SWITCH_AUTO	(-1)
+#define BANK_SWITCH_OFF		0
+#define BANK_SWITCH_ON		1
+
+static int bank_switch = BANK_SWITCH_AUTO;
+
+static int bank_switch_param_set(const char *val,
+				 const struct kernel_param *kp)
+{
+	bool bval;
+	int ival;
+
+	/* bare "bank_switch" on the command line: same as the old bool */
+	if (!val) {
+		ival = BANK_SWITCH_ON;
+	} else if (sysfs_streq(val, "auto")) {
+		ival = BANK_SWITCH_AUTO;
+	} else if (!kstrtoint(val, 10, &ival)) {
+		if (ival < BANK_SWITCH_AUTO || ival > BANK_SWITCH_ON)
+			return -EINVAL;
+	} else if (!kstrtobool(val, &bval)) {
+		/* y/Y/n/N/on/off, as accepted by the 0.1.1 bool parameter */
+		ival = bval ? BANK_SWITCH_ON : BANK_SWITCH_OFF;
+	} else {
+		return -EINVAL;
+	}
+
+	*(int *)kp->arg = ival;
+	return 0;
+}
+
+static const struct kernel_param_ops bank_switch_param_ops = {
+	.flags	= KERNEL_PARAM_OPS_FL_NOARG,
+	.set	= bank_switch_param_set,
+	.get	= param_get_int,
+};
+
+/* 0444: read-only in sysfs, so it can only be set when the module loads */
+module_param_cb(bank_switch, &bank_switch_param_ops, &bank_switch, 0444);
 MODULE_PARM_DESC(bank_switch,
-		 "Switch the EC to bank 0 for each poll and restore it (default: off, never write to the EC)");
+		 "EC bank switching: -1/auto = on only for boards known to need it (default), 0 = never write to the EC, 1 = always on");
+
+static bool asus_ec_bank_switch_enabled(const struct ec_sensors_data *ec)
+{
+	switch (bank_switch) {
+	case BANK_SWITCH_OFF:
+		return false;
+	case BANK_SWITCH_ON:
+		return true;
+	default: /* BANK_SWITCH_AUTO */
+		return ec->board_info->plus_bank_switch;
+	}
+}
 
 /*
- * Read-only variant (asus-ec-sensors-plus): with bank_switch=0 this function
+ * Read-only variant (asus-ec-sensors-plus): with bank switching off (bank_switch=0,
+ * or "auto" on a board without .plus_bank_switch) this function
  * never writes to the EC. The mainline driver switches the EC bank by writing
  * register 0xff and writes the previous bank back after every poll. Here we
  * only read the bank register (before and after reading); if the EC is not on
@@ -1332,7 +1397,7 @@ static int asus_ec_block_read(const struct device *dev,
 	}
 
 	if (orig_bank != 0) {
-		if (!bank_switch) {
+		if (!asus_ec_bank_switch_enabled(ec)) {
 			/* firmware is using another bank: do not touch it */
 			dev_dbg(dev, "EC is on bank %u, skipping this poll",
 				orig_bank);
@@ -1709,6 +1774,10 @@ static int asus_ec_probe(struct platform_device *pdev)
 
 	dev_info(dev, "board has %d EC sensors that span %d registers",
 		 ec_data->nr_sensors, ec_data->nr_registers);
+
+	dev_info(dev, "EC bank switching %s (bank_switch=%d%s)",
+		 asus_ec_bank_switch_enabled(ec_data) ? "on" : "off",
+		 bank_switch, bank_switch == BANK_SWITCH_AUTO ? ", auto" : "");
 
 	hwdev = devm_hwmon_device_register_with_info(dev, "asusec",
 						     ec_data, chip_info, NULL);
