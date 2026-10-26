@@ -2,6 +2,36 @@
 
 All notable changes to this project. Dates are YYYY-MM-DD.
 
+## [0.1.2] - 2026-10-26
+
+### Changed
+- `bank_switch` is now a number with an automatic default:
+  - `-1` / `auto` (**new default**): bank switching on for boards flagged
+    `.plus_bank_switch` (firmware known to park the EC on another bank for
+    minutes), off for every other board;
+  - `0` (also `n`/`N`/`off`): never write to the EC, as before;
+  - `1` (also `y`/`Y`/`on`): always on, as before.
+  Any other value is refused and the module does not load.
+- **Behaviour change on the TUF GAMING X870-PRO WIFI7 W NEO:** it is the one
+  flagged board, so bank switching is now on by default there (no
+  `/etc/modprobe.d` file needed). Use `bank_switch=0` for the old strictly
+  read-only default. Every other board keeps the read-only default.
+- `/sys/module/asus_ec_sensors/parameters/bank_switch` now shows `-1`, `0`
+  or `1` instead of `Y`/`N`. Existing `bank_switch=1` config files keep
+  working unchanged.
+- The kernel log says at load time which mode was chosen
+  (`EC bank switching on (bank_switch=-1, auto)`).
+- Package description no longer says "read-only": it reads only, with an
+  optional save/restore of the bank-select register `0xFF`.
+- README: `bank_switch` value table, 0.1.2 test results, safety notes and
+  "Add your board" (when to set `.plus_bank_switch`); example modprobe file
+  updated.
+
+### Unchanged
+- The only register the driver can write is still the bank register `0xFF`
+  (set to 0, then the saved value written back), under the firmware's ACPI
+  mutex. Fans, PWM, voltages and settings are never written.
+
 ## [0.1.1] - 2026-10-25
 
 ### Added
